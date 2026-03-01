@@ -369,6 +369,7 @@
             align-items: center;
             justify-content: center;
             transition: all 0.2s;
+            font-size: 0.9rem;
         }
         .action-btn:hover {
             background: #e5e7eb;
@@ -434,6 +435,14 @@
             color: #1d4ed8;
         }
         .movement-fixed.inactive {
+            background: #f3f4f6;
+            color: #9ca3af;
+        }
+        .movement-parcel {
+            background: #fae8ff;
+            color: #a855f7;
+        }
+        .movement-parcel.inactive {
             background: #f3f4f6;
             color: #9ca3af;
         }
@@ -534,21 +543,49 @@
             border-color: #059669;
             box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
         }
-        .fixed-info {
-            background: #dbeafe;
+        .movement-info {
+            background: #f0fdf4;
             padding: 0.75rem 1rem;
             border-radius: 0.75rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
             margin-top: 0.5rem;
         }
-        .fixed-info-text {
+        .movement-info.fixed {
+            background: #dbeafe;
+        }
+        .movement-info.parcel {
+            background: #fae8ff;
+        }
+        .movement-info-text {
             display: flex;
             align-items: center;
             gap: 0.5rem;
             font-size: 0.85rem;
             color: #1e40af;
+            margin-bottom: 0.5rem;
+        }
+        .movement-info.parcel .movement-info-text {
+            color: #7e22ce;
+        }
+        .parcel-options {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .parcel-options label {
+            font-size: 0.8rem;
+            color: #374151;
+            margin: 0;
+        }
+        .parcel-options select {
+            width: auto;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.85rem;
+        }
+        .parcel-value-info {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
         }
         .switch-container {
             display: flex;
@@ -558,6 +595,7 @@
         .switch-container label {
             font-size: 0.8rem;
             color: #1e40af;
+            margin: 0;
         }
         .switch {
             position: relative;
@@ -926,12 +964,14 @@
                     </div>
                     <div class="form-group">
                         <label>Movimentação</label>
-                        <select id="transactionMovement" onchange="toggleFixedInfo()">
+                        <select id="transactionMovement" onchange="toggleMovementInfo()">
                             <option value="variable">Variável</option>
                             <option value="fixed">Fixa (recorrente)</option>
+                            <option value="parcel">Parcelado</option>
                         </select>
-                        <div class="fixed-info" id="fixedInfo" style="display: none;">
-                            <div class="fixed-info-text">
+                        <!-- Info para Fixa -->
+                        <div class="movement-info fixed" id="fixedInfo" style="display: none;">
+                            <div class="movement-info-text">
                                 🔄 Repete automaticamente todos os meses
                             </div>
                             <div class="switch-container">
@@ -940,6 +980,32 @@
                                     <input type="checkbox" id="transactionActive" checked>
                                     <span class="switch-slider"></span>
                                 </label>
+                            </div>
+                        </div>
+                        <!-- Info para Parcelado -->
+                        <div class="movement-info parcel" id="parcelInfo" style="display: none;">
+                            <div class="movement-info-text">
+                                📦 Dividir em parcelas mensais
+                            </div>
+                            <div class="parcel-options">
+                                <label>Nº de parcelas:</label>
+                                <select id="parcelCount" onchange="updateParcelValue()">
+                                    <option value="2">2x</option>
+                                    <option value="3">3x</option>
+                                    <option value="4">4x</option>
+                                    <option value="5">5x</option>
+                                    <option value="6">6x</option>
+                                    <option value="7">7x</option>
+                                    <option value="8">8x</option>
+                                    <option value="9">9x</option>
+                                    <option value="10">10x</option>
+                                    <option value="12">12x</option>
+                                    <option value="18">18x</option>
+                                    <option value="24">24x</option>
+                                </select>
+                            </div>
+                            <div class="parcel-value-info" id="parcelValueInfo">
+                                Valor de cada parcela: R$ 0,00
                             </div>
                         </div>
                     </div>
@@ -951,11 +1017,11 @@
                 </div>
                 <div class="form-grid">
                     <div class="form-group">
-                        <label>Valor (R$)</label>
-                        <input type="number" id="transactionValue" placeholder="0,00" step="0.01">
+                        <label>Valor Total (R$)</label>
+                        <input type="number" id="transactionValue" placeholder="0,00" step="0.01" oninput="updateParcelValue()">
                     </div>
                     <div class="form-group">
-                        <label>Data</label>
+                        <label>Data da 1ª Parcela / Início</label>
                         <input type="date" id="transactionDate">
                     </div>
                 </div>
@@ -1142,11 +1208,11 @@
         
         const totalIncome = monthTransactions
             .filter(t => t.type === 'income')
-            .reduce((sum, t) => sum + t.value, 0);
+            .reduce((sum, t) => sum + t.parcelValue, 0);
 
         const totalExpense = monthTransactions
             .filter(t => t.type === 'expense')
-            .reduce((sum, t) => sum + t.value, 0);
+            .reduce((sum, t) => sum + t.parcelValue, 0);
 
         const balance = totalIncome - totalExpense;
         const totalBudget = categories.filter(c => !INCOME_CATEGORIES.includes(c.name)).reduce((sum, c) => sum + c.limit, 0);
@@ -1172,7 +1238,7 @@
             .forEach(t => {
                 const cat = categories.find(c => c.id === t.categoryId);
                 if (cat) {
-                    expensesByCategory[cat.name] = (expensesByCategory[cat.name] || 0) + t.value;
+                    expensesByCategory[cat.name] = (expensesByCategory[cat.name] || 0) + t.parcelValue;
                 }
             });
 
@@ -1202,7 +1268,6 @@
 
         const total = chartData.reduce((sum, d) => sum + d.value, 0);
         
-        // Criar canvas para o gráfico
         container.innerHTML = `
             <div class="pie-chart">
                 <canvas id="pieCanvas" width="200" height="200"></canvas>
@@ -1221,7 +1286,6 @@
             </div>
         `;
 
-        // Desenhar gráfico
         drawPieChart(chartData, total);
     }
 
@@ -1250,7 +1314,6 @@
             startAngle += sliceAngle;
         });
 
-        // Desenhar círculo interno (donut)
         ctx.beginPath();
         ctx.arc(centerX, centerY, innerRadius, 0, 2 * Math.PI);
         ctx.fillStyle = 'white';
@@ -1266,7 +1329,7 @@
         tbody.innerHTML = expenseCategories.map(cat => {
             const spent = monthTransactions
                 .filter(t => t.type === 'expense' && t.categoryId === cat.id)
-                .reduce((sum, t) => sum + t.value, 0);
+                .reduce((sum, t) => sum + t.parcelValue, 0);
             
             const remaining = cat.limit - spent;
             const percent = cat.limit > 0 ? (spent / cat.limit) * 100 : 0;
@@ -1322,38 +1385,47 @@
         wrapper.style.display = 'block';
         empty.style.display = 'none';
 
-        // Ordenar por data (mais recente primeiro)
-        const sorted = [...monthTransactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const sorted = [...monthTransactions].sort((a, b) => new Date(b.displayDate) - new Date(a.displayDate));
 
         tbody.innerHTML = sorted.map(t => {
             const cat = categories.find(c => c.id === t.categoryId);
             const isFixed = t.movementType === 'fixed';
-            const rowClass = isFixed && !t.isActive ? 'row-inactive' : '';
+            const isParcel = t.movementType === 'parcel';
+            const rowClass = (isFixed || isParcel) && !t.isActive ? 'row-inactive' : '';
+
+            // Badge de movimentação
+            let movementBadge = '';
+            if (isFixed) {
+                movementBadge = `<span class="movement-badge ${t.isActive ? 'movement-fixed' : 'movement-fixed inactive'}">
+                    🔄 Fixa
+                </span>`;
+            } else if (isParcel) {
+                movementBadge = `<span class="movement-badge ${t.isActive ? 'movement-parcel' : 'movement-parcel inactive'}">
+                    📦 ${t.currentParcel}/${t.totalParcels}
+                </span>`;
+            } else {
+                movementBadge = `<span class="movement-badge">Variável</span>`;
+            }
 
             return `
                 <tr class="${rowClass}">
                     <td>
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            ${formatDate(t.date)}
-                            ${isFixed ? `<span title="${t.isActive ? 'Transação fixa - repete mensalmente' : 'Transação fixa desativada'}">🔄</span>` : ''}
+                            ${formatDate(t.displayDate)}
                         </div>
                     </td>
                     <td><span class="type-badge ${t.type === 'income' ? 'type-income' : 'type-expense'}">${t.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
                     <td>${cat ? cat.icon + ' ' + cat.name : '-'}</td>
                     <td class="value-cell ${t.type === 'income' ? 'value-income' : 'value-expense'}">
-                        ${t.type === 'income' ? '+' : '-'} ${formatCurrency(t.value)}
+                        ${t.type === 'income' ? '+' : '-'} ${formatCurrency(t.parcelValue)}
                     </td>
-                    <td>
-                        <span class="movement-badge ${isFixed ? (t.isActive ? 'movement-fixed' : 'movement-fixed inactive') : ''}">
-                            ${isFixed ? '🔄 Fixa' : 'Variável'}
-                        </span>
-                    </td>
+                    <td>${movementBadge}</td>
                     <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${t.notes || ''}">${t.notes || '-'}</td>
                     <td>
                         <div class="action-btns">
-                            ${isFixed ? `<button class="action-btn" onclick="toggleTransactionActive('${t.id}')" title="${t.isActive ? 'Desativar' : 'Reativar'}">${t.isActive ? '⚡' : '🔌'}</button>` : ''}
-                            <button class="action-btn" onclick="editTransaction('${t.id}')" title="Editar">✏️</button>
-                            <button class="action-btn delete" onclick="deleteTransaction('${t.id}')" title="Excluir">🗑️</button>
+                            ${(isFixed || isParcel) ? `<button class="action-btn" onclick="toggleTransactionActive('${t.originalId || t.id}')" title="${t.isActive ? 'Desativar' : 'Reativar'}">${t.isActive ? '⚡' : '🔌'}</button>` : ''}
+                            <button class="action-btn" onclick="editTransaction('${t.originalId || t.id}')" title="Editar">✏️</button>
+                            <button class="action-btn delete" onclick="deleteTransaction('${t.originalId || t.id}')" title="Excluir">🗑️</button>
                         </div>
                     </td>
                 </tr>
@@ -1366,17 +1438,57 @@
         const startDate = new Date(currentYear, currentMonth, 1);
         const endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
 
-        return transactions.filter(t => {
+        const result = [];
+
+        transactions.forEach(t => {
             const tDate = new Date(t.date);
             
             if (t.movementType === 'variable') {
-                return tDate >= startDate && tDate <= endDate;
+                if (tDate >= startDate && tDate <= endDate) {
+                    result.push({
+                        ...t,
+                        displayDate: t.date,
+                        parcelValue: t.value,
+                        originalId: t.id
+                    });
+                }
+            } else if (t.movementType === 'fixed') {
+                if (!t.isActive) return;
+                if (tDate <= endDate) {
+                    result.push({
+                        ...t,
+                        displayDate: t.date,
+                        parcelValue: t.value,
+                        originalId: t.id
+                    });
+                }
+            } else if (t.movementType === 'parcel') {
+                if (!t.isActive) return;
+                
+                const totalParcels = t.totalParcels || 1;
+                const parcelValue = t.value / totalParcels;
+                
+                // Calcular qual parcela cai no mês atual
+                for (let i = 0; i < totalParcels; i++) {
+                    const parcelDate = new Date(tDate);
+                    parcelDate.setMonth(parcelDate.getMonth() + i);
+                    
+                    if (parcelDate >= startDate && parcelDate <= endDate) {
+                        result.push({
+                            ...t,
+                            displayDate: parcelDate.toISOString(),
+                            parcelValue: parcelValue,
+                            currentParcel: i + 1,
+                            totalParcels: totalParcels,
+                            originalId: t.id
+                        });
+                        break; // Só uma parcela por mês
+                    }
+                }
             }
-            
-            // Transações fixas: ativas e criadas antes ou no mês atual
-            if (!t.isActive) return false;
-            return tDate <= endDate;
         });
+
+        return result;
     }
 
     function formatCurrency(value) {
@@ -1441,7 +1553,9 @@
         document.getElementById('transactionDate').valueAsDate = new Date();
         document.getElementById('transactionNotes').value = '';
         document.getElementById('transactionActive').checked = true;
+        document.getElementById('parcelCount').value = '3';
         document.getElementById('fixedInfo').style.display = 'none';
+        document.getElementById('parcelInfo').style.display = 'none';
         updateCategoryOptions();
         document.getElementById('transactionModal').classList.add('active');
     };
@@ -1450,9 +1564,36 @@
         document.getElementById('transactionModal').classList.remove('active');
     };
 
-    window.toggleFixedInfo = function() {
+    window.toggleMovementInfo = function() {
         const movement = document.getElementById('transactionMovement').value;
-        document.getElementById('fixedInfo').style.display = movement === 'fixed' ? 'flex' : 'none';
+        document.getElementById('fixedInfo').style.display = movement === 'fixed' ? 'block' : 'none';
+        document.getElementById('parcelInfo').style.display = movement === 'parcel' ? 'block' : 'none';
+        
+        // Atualizar label da data
+        const dateLabel = document.querySelector('label[for="transactionDate"]') || document.querySelectorAll('.form-group')[3]?.querySelector('label');
+        if (dateLabel) {
+            if (movement === 'parcel') {
+                dateLabel.textContent = 'Data da 1ª Parcela';
+            } else if (movement === 'fixed') {
+                dateLabel.textContent = 'Data de Início';
+            } else {
+                dateLabel.textContent = 'Data';
+            }
+        }
+        
+        updateParcelValue();
+    };
+
+    window.updateParcelValue = function() {
+        const movement = document.getElementById('transactionMovement').value;
+        const value = parseFloat(document.getElementById('transactionValue').value) || 0;
+        
+        if (movement === 'parcel') {
+            const parcels = parseInt(document.getElementById('parcelCount').value) || 1;
+            const parcelValue = value / parcels;
+            document.getElementById('parcelValueInfo').textContent = 
+                `Valor de cada parcela: ${formatCurrency(parcelValue)} (${parcels}x)`;
+        }
     };
 
     window.updateCategoryOptions = function() {
@@ -1481,9 +1622,13 @@
         document.getElementById('transactionNotes').value = t.notes || '';
         document.getElementById('transactionActive').checked = t.isActive !== false;
         
+        if (t.movementType === 'parcel') {
+            document.getElementById('parcelCount').value = t.totalParcels || 3;
+        }
+        
         updateCategoryOptions();
         document.getElementById('transactionCategory').value = t.categoryId;
-        toggleFixedInfo();
+        toggleMovementInfo();
         
         document.getElementById('transactionModal').classList.add('active');
     };
@@ -1496,6 +1641,7 @@
         const date = document.getElementById('transactionDate').value;
         const notes = document.getElementById('transactionNotes').value;
         const isActive = document.getElementById('transactionActive').checked;
+        const totalParcels = movementType === 'parcel' ? parseInt(document.getElementById('parcelCount').value) : 1;
 
         if (!categoryId || isNaN(value) || !date) {
             alert('Preencha todos os campos obrigatórios');
@@ -1505,7 +1651,17 @@
         if (editingTransactionId) {
             const index = transactions.findIndex(t => t.id === editingTransactionId);
             if (index !== -1) {
-                transactions[index] = { ...transactions[index], type, categoryId, movementType, value, date, notes, isActive };
+                transactions[index] = { 
+                    ...transactions[index], 
+                    type, 
+                    categoryId, 
+                    movementType, 
+                    value, 
+                    date, 
+                    notes, 
+                    isActive: movementType !== 'variable' ? isActive : true,
+                    totalParcels
+                };
             }
         } else {
             transactions.push({
@@ -1516,7 +1672,8 @@
                 value,
                 date,
                 notes,
-                isActive: movementType === 'fixed' ? isActive : true
+                isActive: movementType !== 'variable' ? isActive : true,
+                totalParcels
             });
         }
 
@@ -1627,18 +1784,17 @@
     window.openReportModal = function() {
         const monthTransactions = getMonthTransactions();
         
-        const totalIncome = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.value, 0);
-        const totalExpense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.value, 0);
+        const totalIncome = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.parcelValue, 0);
+        const totalExpense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.parcelValue, 0);
         const balance = totalIncome - totalExpense;
         const totalBudget = categories.filter(c => !INCOME_CATEGORIES.includes(c.name)).reduce((sum, c) => sum + c.limit, 0);
         const budgetPercent = totalBudget > 0 ? (totalExpense / totalBudget) * 100 : 0;
 
-        // Maior e menor gasto
         const expensesByCat = {};
         monthTransactions.filter(t => t.type === 'expense').forEach(t => {
             const cat = categories.find(c => c.id === t.categoryId);
             if (cat) {
-                expensesByCat[cat.name] = (expensesByCat[cat.name] || 0) + t.value;
+                expensesByCat[cat.name] = (expensesByCat[cat.name] || 0) + t.parcelValue;
             }
         });
 
@@ -1661,8 +1817,8 @@
 
     window.exportTXT = function() {
         const monthTransactions = getMonthTransactions();
-        const totalIncome = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.value, 0);
-        const totalExpense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.value, 0);
+        const totalIncome = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.parcelValue, 0);
+        const totalExpense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.parcelValue, 0);
         const balance = totalIncome - totalExpense;
         const totalBudget = categories.filter(c => !INCOME_CATEGORIES.includes(c.name)).reduce((sum, c) => sum + c.limit, 0);
         const budgetPercent = totalBudget > 0 ? (totalExpense / totalBudget) * 100 : 0;
@@ -1685,7 +1841,8 @@ TRANSAÇÕES
 
 ${monthTransactions.map(t => {
     const cat = categories.find(c => c.id === t.categoryId);
-    return `${formatDate(t.date)} | ${t.type === 'income' ? 'RECEITA' : 'DESPESA'} | ${cat ? cat.name : '-'} | ${formatCurrency(t.value)} | ${t.notes || ''}`;
+    const parcelInfo = t.movementType === 'parcel' ? ` (${t.currentParcel}/${t.totalParcels})` : '';
+    return `${formatDate(t.displayDate)} | ${t.type === 'income' ? 'RECEITA' : 'DESPESA'} | ${cat ? cat.name : '-'} | ${formatCurrency(t.parcelValue)}${parcelInfo} | ${t.notes || ''}`;
 }).join('\n')}
 
 Gerado em: ${new Date().toLocaleString('pt-BR')}
@@ -1697,15 +1854,17 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}
     window.exportCSV = function() {
         const monthTransactions = getMonthTransactions();
         
-        const headers = ['Data', 'Tipo', 'Categoria', 'Valor', 'Movimentação', 'Observações'];
+        const headers = ['Data', 'Tipo', 'Categoria', 'Valor', 'Movimentação', 'Parcela', 'Observações'];
         const rows = monthTransactions.map(t => {
             const cat = categories.find(c => c.id === t.categoryId);
+            const parcelInfo = t.movementType === 'parcel' ? `${t.currentParcel}/${t.totalParcels}` : '-';
             return [
-                formatDate(t.date),
+                formatDate(t.displayDate),
                 t.type === 'income' ? 'Receita' : 'Despesa',
                 cat ? cat.name : '-',
-                t.value.toFixed(2),
-                t.movementType === 'fixed' ? 'Fixa' : 'Variável',
+                t.parcelValue.toFixed(2),
+                t.movementType === 'fixed' ? 'Fixa' : t.movementType === 'parcel' ? 'Parcelado' : 'Variável',
+                parcelInfo,
                 t.notes || ''
             ].join(',');
         });
