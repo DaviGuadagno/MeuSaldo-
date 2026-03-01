@@ -1,0 +1,1352 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { format } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
+import {
+  Wallet,
+  TrendingUp,
+  TrendingDown,
+  PieChart as PieChartIcon,
+  Plus,
+  Trash2,
+  Edit2,
+  Menu,
+  X,
+  Download,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Repeat,
+  Power,
+  PowerOff,
+} from 'lucide-react'
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  Legend,
+} from 'recharts'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Textarea } from '@/components/ui/textarea'
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Switch } from '@/components/ui/switch'
+import { toast } from 'sonner'
+
+// Types
+interface Category {
+  id: string
+  name: string
+  icon: string | null
+  color: string | null
+  limit: number
+  totalSpent: number
+  remaining: number
+  percentageUsed: number
+}
+
+interface Transaction {
+  id: string
+  type: string
+  categoryId: string
+  category: {
+    id: string
+    name: string
+    icon: string | null
+    color: string | null
+  }
+  value: number
+  date: Date
+  movementType: string
+  isActive: boolean
+  notes: string | null
+}
+
+interface Report {
+  totalIncome: number
+  totalExpense: number
+  balance: number
+  highestSpendingCategory: { name: string; value: number }
+  lowestSpendingCategory: { name: string; value: number }
+  budgetPercentageUsed: number
+  totalBudget: number
+  categoryStats: Array<{
+    id: string
+    name: string
+    limit: number
+    spent: number
+    remaining: number
+    percentageUsed: number
+    status: string
+  }>
+  transactionCount: number
+  incomeCount: number
+  expenseCount: number
+  period: { month: number; year: number } | null
+}
+
+// Constants
+const CURRENT_MONTH = new Date().getMonth() + 1
+const CURRENT_YEAR = new Date().getFullYear()
+const MONTHS = [
+  { value: 1, label: 'Janeiro' },
+  { value: 2, label: 'Fevereiro' },
+  { value: 3, label: 'Março' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Maio' },
+  { value: 6, label: 'Junho' },
+  { value: 7, label: 'Julho' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Setembro' },
+  { value: 10, label: 'Outubro' },
+  { value: 11, label: 'Novembro' },
+  { value: 12, label: 'Dezembro' },
+]
+
+export default function Dashboard() {
+  // State
+  const [categories, setCategories] = useState<Category[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [report, setReport] = useState<Report | null>(null)
+  const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
+  const [isLoading, setIsLoading] = useState(true)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle')
+
+  // Form states
+  const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+
+  // Transaction form
+  const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense')
+  const [transactionCategory, setTransactionCategory] = useState('')
+  const [transactionValue, setTransactionValue] = useState('')
+  const [transactionDate, setTransactionDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [transactionMovementType, setTransactionMovementType] = useState<'fixed' | 'variable'>('variable')
+  const [transactionIsActive, setTransactionIsActive] = useState(true)
+  const [transactionNotes, setTransactionNotes] = useState('')
+
+  // Category form
+  const [categoryName, setCategoryName] = useState('')
+  const [categoryIcon, setCategoryIcon] = useState('')
+  const [categoryColor, setCategoryColor] = useState('#10b981')
+  const [categoryLimit, setCategoryLimit] = useState('')
+
+  // Mobile menu
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  // Initialize data
+  useEffect(() => {
+    initializeData()
+  }, [])
+
+  // Fetch data when month/year changes
+  useEffect(() => {
+    if (!isLoading) {
+      fetchData()
+    }
+  }, [selectedMonth, selectedYear])
+
+  const initializeData = async () => {
+    try {
+      await fetch('/api/init')
+      await fetchData()
+    } catch (error) {
+      console.error('Error initializing:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const fetchData = async () => {
+    try {
+      const [categoriesRes, transactionsRes, reportRes] = await Promise.all([
+        fetch(`/api/categories?month=${selectedMonth}&year=${selectedYear}`),
+        fetch(`/api/transactions?month=${selectedMonth}&year=${selectedYear}`),
+        fetch(`/api/reports?month=${selectedMonth}&year=${selectedYear}`),
+      ])
+
+      const categoriesData = await categoriesRes.json()
+      const transactionsData = await transactionsRes.json()
+      const reportData = await reportRes.json()
+
+      setCategories(categoriesData)
+      setTransactions(transactionsData)
+      setReport(reportData)
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    }
+  }
+
+  const showAutoSave = useCallback(() => {
+    setAutoSaveStatus('saving')
+    setTimeout(() => {
+      setAutoSaveStatus('saved')
+      setTimeout(() => setAutoSaveStatus('idle'), 2000)
+    }, 500)
+  }, [])
+
+  // Transaction handlers
+  const handleAddTransaction = async () => {
+    if (!transactionCategory || !transactionValue || !transactionDate) {
+      toast.error('Preencha todos os campos obrigatórios')
+      return
+    }
+
+    showAutoSave()
+
+    try {
+      if (editingTransaction) {
+        const res = await fetch(`/api/transactions/${editingTransaction.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: transactionType,
+            categoryId: transactionCategory,
+            value: transactionValue,
+            date: transactionDate,
+            movementType: transactionMovementType,
+            isActive: transactionIsActive,
+            notes: transactionNotes,
+          }),
+        })
+        if (res.ok) {
+          toast.success('Transação atualizada!')
+        }
+      } else {
+        const res = await fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: transactionType,
+            categoryId: transactionCategory,
+            value: transactionValue,
+            date: transactionDate,
+            movementType: transactionMovementType,
+            isActive: transactionIsActive,
+            notes: transactionNotes,
+          }),
+        })
+        if (res.ok) {
+          toast.success('Transação adicionada!')
+        }
+      }
+
+      resetTransactionForm()
+      await fetchData()
+    } catch (error) {
+      toast.error('Erro ao salvar transação')
+    }
+  }
+
+  const handleDeleteTransaction = async (id: string) => {
+    showAutoSave()
+    try {
+      await fetch(`/api/transactions/${id}`, { method: 'DELETE' })
+      toast.success('Transação excluída!')
+      await fetchData()
+    } catch (error) {
+      toast.error('Erro ao excluir transação')
+    }
+  }
+
+  const resetTransactionForm = () => {
+    setTransactionType('expense')
+    setTransactionCategory('')
+    setTransactionValue('')
+    setTransactionDate(format(new Date(), 'yyyy-MM-dd'))
+    setTransactionMovementType('variable')
+    setTransactionIsActive(true)
+    setTransactionNotes('')
+    setEditingTransaction(null)
+    setTransactionDialogOpen(false)
+  }
+
+  const editTransaction = (transaction: Transaction) => {
+    setEditingTransaction(transaction)
+    setTransactionType(transaction.type as 'income' | 'expense')
+    setTransactionCategory(transaction.categoryId)
+    setTransactionValue(transaction.value.toString())
+    setTransactionDate(format(new Date(transaction.date), 'yyyy-MM-dd'))
+    setTransactionMovementType(transaction.movementType as 'fixed' | 'variable')
+    setTransactionIsActive(transaction.isActive)
+    setTransactionNotes(transaction.notes || '')
+    setTransactionDialogOpen(true)
+  }
+
+  // Toggle transaction active status
+  const toggleTransactionActive = async (transaction: Transaction) => {
+    showAutoSave()
+    try {
+      const newIsActive = !transaction.isActive
+      await fetch(`/api/transactions/${transaction.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: transaction.type,
+          categoryId: transaction.categoryId,
+          value: transaction.value,
+          date: transaction.date,
+          movementType: transaction.movementType,
+          isActive: newIsActive,
+          notes: transaction.notes,
+        }),
+      })
+      toast.success(newIsActive ? 'Transação reativada!' : 'Transação desativada!')
+      await fetchData()
+    } catch (error) {
+      toast.error('Erro ao atualizar transação')
+    }
+  }
+
+  // Category handlers
+  const handleAddCategory = async () => {
+    if (!categoryName) {
+      toast.error('Nome da categoria é obrigatório')
+      return
+    }
+
+    showAutoSave()
+
+    try {
+      if (editingCategory) {
+        const res = await fetch(`/api/categories/${editingCategory.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: categoryName,
+            icon: categoryIcon,
+            color: categoryColor,
+            limit: parseFloat(categoryLimit) || 0,
+          }),
+        })
+        if (res.ok) {
+          toast.success('Categoria atualizada!')
+        }
+      } else {
+        const res = await fetch('/api/categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: categoryName,
+            icon: categoryIcon,
+            color: categoryColor,
+            limit: parseFloat(categoryLimit) || 0,
+          }),
+        })
+        if (res.ok) {
+          toast.success('Categoria adicionada!')
+        }
+      }
+
+      resetCategoryForm()
+      await fetchData()
+    } catch (error) {
+      toast.error('Erro ao salvar categoria')
+    }
+  }
+
+  const handleDeleteCategory = async (id: string) => {
+    showAutoSave()
+    try {
+      await fetch(`/api/categories/${id}`, { method: 'DELETE' })
+      toast.success('Categoria excluída!')
+      await fetchData()
+    } catch (error) {
+      toast.error('Erro ao excluir categoria')
+    }
+  }
+
+  const resetCategoryForm = () => {
+    setCategoryName('')
+    setCategoryIcon('')
+    setCategoryColor('#10b981')
+    setCategoryLimit('')
+    setEditingCategory(null)
+    setCategoryDialogOpen(false)
+  }
+
+  const editCategory = (category: Category) => {
+    setEditingCategory(category)
+    setCategoryName(category.name)
+    setCategoryIcon(category.icon || '')
+    setCategoryColor(category.color || '#10b981')
+    setCategoryLimit(category.limit.toString())
+    setCategoryDialogOpen(true)
+  }
+
+  // Export handlers
+  const exportToPDF = () => {
+    if (!report) return
+
+    const content = `
+RELATÓRIO FINANCEIRO
+Período: ${MONTHS.find(m => m.value === selectedMonth)?.label} ${selectedYear}
+
+═══════════════════════════════════════════════════════════
+RESUMO GERAL
+═══════════════════════════════════════════════════════════
+
+💰 Total de Receitas: R$ ${report.totalIncome.toFixed(2)}
+💸 Total de Despesas: R$ ${report.totalExpense.toFixed(2)}
+📊 Saldo Final: R$ ${report.balance.toFixed(2)}
+📈 Orçamento Utilizado: ${report.budgetPercentageUsed.toFixed(1)}%
+
+═══════════════════════════════════════════════════════════
+ANÁLISE POR CATEGORIA
+═══════════════════════════════════════════════════════════
+
+ ${report.categoryStats.map(cat => `
+ ${cat.name}:
+  Limite: R$ ${cat.limit.toFixed(2)}
+  Gasto: R$ ${cat.spent.toFixed(2)}
+  Restante: R$ ${cat.remaining.toFixed(2)}
+  Status: ${cat.status === 'exceeded' ? 'EXCEDIDO' : cat.status === 'warning' ? 'ATENÇÃO' : 'OK'}
+`).join('\n')}
+
+═══════════════════════════════════════════════════════════
+DESTAQUES
+═══════════════════════════════════════════════════════════
+
+🔺 Maior gasto: ${report.highestSpendingCategory.name} (R$ ${report.highestSpendingCategory.value.toFixed(2)})
+🔻 Menor gasto: ${report.lowestSpendingCategory.name} (R$ ${report.lowestSpendingCategory.value.toFixed(2)})
+
+═══════════════════════════════════════════════════════════
+ESTATÍSTICAS
+═══════════════════════════════════════════════════════════
+
+Total de transações: ${report.transactionCount}
+Receitas: ${report.incomeCount}
+Despesas: ${report.expenseCount}
+
+Gerado em: ${format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+    `
+
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `relatorio-financeiro-${selectedMonth}-${selectedYear}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Relatório exportado!')
+  }
+
+  const exportToExcel = () => {
+    if (!report || transactions.length === 0) return
+
+    const headers = ['Data', 'Tipo', 'Categoria', 'Valor', 'Movimentação', 'Observações']
+    const rows = transactions.map(t => [
+      format(new Date(t.date), 'dd/MM/yyyy'),
+      t.type === 'income' ? 'Receita' : 'Despesa',
+      t.category.name,
+      t.value.toFixed(2),
+      t.movementType === 'fixed' ? 'Fixa' : 'Variável',
+      t.notes || ''
+    ])
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `transacoes-${selectedMonth}-${selectedYear}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Planilha exportada!')
+  }
+
+  // Chart data
+  const pieChartData = categories
+    .filter(cat => cat.totalSpent > 0)
+    .map(cat => ({
+      name: cat.name,
+      value: cat.totalSpent,
+      color: cat.color || '#6b7280',
+      percentageUsed: cat.percentageUsed,
+      status: cat.percentageUsed >= 100 ? 'exceeded' : cat.percentageUsed >= 80 ? 'warning' : 'ok',
+    }))
+
+  const getChartColor = (entry: typeof pieChartData[0]) => {
+    if (entry.status === 'exceeded') return '#ef4444'
+    if (entry.status === 'warning') return '#f59e0b'
+    return entry.color
+  }
+
+  // Format currency
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(value)
+  }
+
+  // Get status badge
+  const getStatusBadge = (percentage: number) => {
+    if (percentage >= 100) {
+      return <Badge variant="destructive" className="text-xs">Excedido</Badge>
+    }
+    if (percentage >= 80) {
+      return <Badge variant="outline" className="text-xs bg-amber-100 text-amber-800 border-amber-300">Atenção</Badge>
+    }
+    return <Badge variant="outline" className="text-xs bg-emerald-100 text-emerald-800 border-emerald-300">OK</Badge>
+  }
+
+  // Get status color
+  const getStatusColor = (percentage: number) => {
+    if (percentage >= 100) return 'text-red-600'
+    if (percentage >= 80) return 'text-amber-600'
+    return 'text-emerald-600'
+  }
+
+  // Filter income categories for income type
+  const incomeCategories = categories.filter(cat =>
+    ['Salário', 'Investimentos', 'Freelance'].includes(cat.name)
+  )
+  const expenseCategories = categories.filter(cat =>
+    !['Salário', 'Investimentos', 'Freelance'].includes(cat.name)
+  )
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex items-center gap-3">
+          <RefreshCw className="h-6 w-6 animate-spin text-emerald-600" />
+          <span className="text-gray-600">Carregando...</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Auto-save indicator */}
+      <div className="fixed top-4 right-4 z-50">
+        {autoSaveStatus === 'saving' && (
+          <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg shadow-md text-sm text-gray-600">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Salvando...
+          </div>
+        )}
+        {autoSaveStatus === 'saved' && (
+          <div className="flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-lg shadow-md text-sm text-emerald-600">
+            <CheckCircle2 className="h-4 w-4" />
+            Alterações salvas automaticamente ✓
+          </div>
+        )}
+      </div>
+
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+                <Wallet className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">FinanceHub</h1>
+                <p className="text-xs text-gray-500">Controle Financeiro Pessoal</p>
+              </div>
+            </div>
+
+            {/* Desktop Navigation */}
+            <nav className="hidden md:flex items-center gap-4">
+              <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={resetTransactionForm} className="bg-emerald-600 hover:bg-emerald-700">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nova Transação
+                  </Button>
+                </DialogTrigger>
+              </Dialog>
+
+              <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" onClick={resetCategoryForm}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nova Categoria
+                  </Button>
+                </DialogTrigger>
+              </Dialog>
+
+              <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="secondary">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Gerar Relatório
+                  </Button>
+                </DialogTrigger>
+              </Dialog>
+            </nav>
+
+            {/* Mobile menu */}
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="md:hidden">
+                  <Menu className="h-6 w-6" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-72">
+                <div className="flex flex-col gap-4 mt-8">
+                  <Dialog open={transactionDialogOpen} onOpenChange={(open) => {
+                    setTransactionDialogOpen(open)
+                    setMobileMenuOpen(false)
+                  }}>
+                    <DialogTrigger asChild>
+                      <Button onClick={resetTransactionForm} className="bg-emerald-600 hover:bg-emerald-700 w-full">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Nova Transação
+                      </Button>
+                    </DialogTrigger>
+                  </Dialog>
+
+                  <Dialog open={categoryDialogOpen} onOpenChange={(open) => {
+                    setCategoryDialogOpen(open)
+                    setMobileMenuOpen(false)
+                  }}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" onClick={resetCategoryForm} className="w-full">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Nova Categoria
+                      </Button>
+                    </DialogTrigger>
+                  </Dialog>
+
+                  <Dialog open={reportDialogOpen} onOpenChange={(open) => {
+                    setReportDialogOpen(open)
+                    setMobileMenuOpen(false)
+                  }}>
+                    <DialogTrigger asChild>
+                      <Button variant="secondary" className="w-full">
+                        <FileText className="h-4 w-4 mr-2" />
+                        Gerar Relatório
+                      </Button>
+                    </DialogTrigger>
+                  </Dialog>
+                </div>
+              </SheetContent>
+            </Sheet>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
+        {/* Month/Year Selector */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                if (selectedMonth === 1) {
+                  setSelectedMonth(12)
+                  setSelectedYear(selectedYear - 1)
+                } else {
+                  setSelectedMonth(selectedMonth - 1)
+                }
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Select value={selectedMonth.toString()} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MONTHS.map(month => (
+                  <SelectItem key={month.value} value={month.value.toString()}>
+                    {month.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
+              <SelectTrigger className="w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[CURRENT_YEAR - 2, CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1].map(year => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                if (selectedMonth === 12) {
+                  setSelectedMonth(1)
+                  setSelectedYear(selectedYear + 1)
+                } else {
+                  setSelectedMonth(selectedMonth + 1)
+                }
+              }}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Total de Receitas</p>
+                  <p className="text-2xl font-bold text-emerald-600">
+                    {formatCurrency(report?.totalIncome || 0)}
+                  </p>
+                </div>
+                <div className="h-12 w-12 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <TrendingUp className="h-6 w-6 text-emerald-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Total de Despesas</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {formatCurrency(report?.totalExpense || 0)}
+                  </p>
+                </div>
+                <div className="h-12 w-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <TrendingDown className="h-6 w-6 text-red-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Saldo Atual</p>
+                  <p className={`text-2xl font-bold ${(report?.balance || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {formatCurrency(report?.balance || 0)}
+                  </p>
+                </div>
+                <div className="h-12 w-12 bg-gray-100 rounded-full flex items-center justify-center">
+                  <Wallet className="h-6 w-6 text-gray-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Orçamento Utilizado</p>
+                  <p className={`text-2xl font-bold ${getStatusColor(report?.budgetPercentageUsed || 0)}`}>
+                    {(report?.budgetPercentageUsed || 0).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="h-12 w-12 bg-gray-100 rounded-full flex items-center justify-center">
+                  <PieChartIcon className="h-6 w-6 text-gray-600" />
+                </div>
+              </div>
+              <Progress value={Math.min(report?.budgetPercentageUsed || 0, 100)} className="mt-2 h-2" />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Grid - Pie Chart and Categories Table */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Pie Chart */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PieChartIcon className="h-5 w-5 text-emerald-600" />
+                Distribuição de Gastos
+              </CardTitle>
+              <CardDescription>Despesas por categoria</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {pieChartData.length > 0 ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        labelLine={false}
+                      >
+                        {pieChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={getChartColor(entry)} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        formatter={(value: number) => formatCurrency(value)}
+                        contentStyle={{ borderRadius: '8px' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <PieChartIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Nenhuma despesa registrada</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Legend */}
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                {pieChartData.slice(0, 6).map((entry, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <div
+                      className="h-3 w-3 rounded-full"
+                      style={{ backgroundColor: getChartColor(entry) }}
+                    />
+                    <span className="truncate text-gray-600">{entry.name}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Categories Table */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                Controle de Categorias
+              </CardTitle>
+              <CardDescription>Limites e gastos por categoria</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead className="text-right">Limite</TableHead>
+                      <TableHead className="text-right">Gasto</TableHead>
+                      <TableHead className="text-right">Restante</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="w-20"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {categories.filter(cat => !['Salário', 'Investimentos', 'Freelance'].includes(cat.name)).map(category => (
+                      <TableRow key={category.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span>{category.icon}</span>
+                            <span className="font-medium">{category.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(category.limit)}</TableCell>
+                        <TableCell className={`text-right font-medium ${getStatusColor(category.percentageUsed)}`}>
+                          {formatCurrency(category.totalSpent)}
+                        </TableCell>
+                        <TableCell className={`text-right ${category.remaining >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {formatCurrency(category.remaining)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {getStatusBadge(category.percentageUsed)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => editCategory(category)}
+                              className="h-8 w-8"
+                            >
+                              <Edit2 className="h-4 w-4 text-gray-500" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteCategory(category.id)}
+                              className="h-8 w-8"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Transactions Table */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-emerald-600" />
+              Transações Recentes
+            </CardTitle>
+            <CardDescription>
+              {transactions.length} transações em {MONTHS.find(m => m.value === selectedMonth)?.label} {selectedYear}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {transactions.length > 0 ? (
+              <ScrollArea className="max-h-96">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead>Movimentação</TableHead>
+                      <TableHead>Observações</TableHead>
+                      <TableHead className="w-28"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.map(transaction => (
+                      <TableRow key={transaction.id} className={!transaction.isActive && transaction.movementType === 'fixed' ? 'opacity-50 bg-gray-50' : ''}>
+                        <TableCell className="whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            {format(new Date(transaction.date), 'dd/MM/yyyy', { locale: ptBR })}
+                            {transaction.movementType === 'fixed' && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="flex items-center cursor-help">
+                                      <Repeat className={`h-4 w-4 ${transaction.isActive ? 'text-blue-500' : 'text-gray-400'}`} />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{transaction.isActive ? 'Transação fixa - repete mensalmente' : 'Transação fixa desativada'}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={transaction.type === 'income' ? 'default' : 'secondary'}
+                            className={transaction.type === 'income' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-800'}
+                          >
+                            {transaction.type === 'income' ? 'Receita' : 'Despesa'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span>{transaction.category.icon}</span>
+                            <span>{transaction.category.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className={`text-right font-bold ${transaction.type === 'income' ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {transaction.type === 'income' ? '+' : '-'} {formatCurrency(transaction.value)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Badge variant="outline" className={`text-xs ${transaction.movementType === 'fixed' ? (transaction.isActive ? 'border-blue-300 text-blue-700 bg-blue-50' : 'border-gray-300 text-gray-500 bg-gray-50') : ''}`}>
+                              {transaction.movementType === 'fixed' ? (
+                                <>
+                                  <Repeat className="h-3 w-3 mr-1" />
+                                  Fixa
+                                </>
+                              ) : 'Variável'}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-32 truncate text-gray-500">
+                          {transaction.notes || '-'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {transaction.movementType === 'fixed' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => toggleTransactionActive(transaction)}
+                                className="h-8 w-8"
+                                title={transaction.isActive ? 'Desativar transação fixa' : 'Reativar transação fixa'}
+                              >
+                                {transaction.isActive ? (
+                                  <Power className="h-4 w-4 text-emerald-500" />
+                                ) : (
+                                  <PowerOff className="h-4 w-4 text-gray-400" />
+                                )}
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => editTransaction(transaction)}
+                              className="h-8 w-8"
+                            >
+                              <Edit2 className="h-4 w-4 text-gray-500" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteTransaction(transaction.id)}
+                              className="h-8 w-8"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            ) : (
+              <div className="py-12 text-center text-gray-400">
+                <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>Nenhuma transação registrada neste mês</p>
+                <p className="text-sm">Clique em "Nova Transação" para começar</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200 py-4 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-gray-500">
+            <p>© 2025 FinanceHub - Controle Financeiro Pessoal</p>
+            <p>Seus dados são salvos automaticamente</p>
+          </div>
+        </div>
+      </footer>
+
+      {/* Transaction Dialog */}
+      <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingTransaction ? 'Editar Transação' : 'Nova Transação'}</DialogTitle>
+            <DialogDescription>
+              {editingTransaction ? 'Altere os dados da transação' : 'Preencha os dados para registrar uma nova transação'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <Select value={transactionType} onValueChange={(v) => setTransactionType(v as 'income' | 'expense')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="expense">Despesa</SelectItem>
+                    <SelectItem value="income">Receita</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Movimentação</Label>
+                <Select value={transactionMovementType} onValueChange={(v) => setTransactionMovementType(v as 'fixed' | 'variable')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="variable">Variável</SelectItem>
+                    <SelectItem value="fixed">Fixa (recorrente)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {transactionMovementType === 'fixed' && (
+                  <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg mt-2">
+                    <div className="flex items-center gap-2">
+                      <Repeat className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm text-blue-800">Repete automaticamente todos os meses</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="active-switch" className="text-xs text-blue-700">
+                        {transactionIsActive ? 'Ativa' : 'Inativa'}
+                      </Label>
+                      <Switch
+                        id="active-switch"
+                        checked={transactionIsActive}
+                        onCheckedChange={setTransactionIsActive}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Categoria</Label>
+              <Select value={transactionCategory} onValueChange={setTransactionCategory}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(transactionType === 'income' ? incomeCategories : expenseCategories).map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {cat.icon} {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Valor (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={transactionValue}
+                  onChange={(e) => setTransactionValue(e.target.value)}
+                  placeholder="0,00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Data</Label>
+                <Input
+                  type="date"
+                  value={transactionDate}
+                  onChange={(e) => setTransactionDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Observações (opcional)</Label>
+              <Textarea
+                value={transactionNotes}
+                onChange={(e) => setTransactionNotes(e.target.value)}
+                placeholder="Adicione observações..."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetTransactionForm}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAddTransaction} className="bg-emerald-600 hover:bg-emerald-700">
+              {editingTransaction ? 'Atualizar' : 'Adicionar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Dialog */}
+      <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingCategory ? 'Editar Categoria' : 'Nova Categoria'}</DialogTitle>
+            <DialogDescription>
+              {editingCategory ? 'Altere os dados da categoria' : 'Crie uma nova categoria para organizar suas finanças'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label>Nome da Categoria</Label>
+              <Input
+                value={categoryName}
+                onChange={(e) => setCategoryName(e.target.value)}
+                placeholder="Ex: Alimentação"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Ícone (emoji)</Label>
+                <Input
+                  value={categoryIcon}
+                  onChange={(e) => setCategoryIcon(e.target.value)}
+                  placeholder="🍽️"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Limite (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={categoryLimit}
+                  onChange={(e) => setCategoryLimit(e.target.value)}
+                  placeholder="0,00"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Cor</Label>
+              <div className="flex gap-2">
+                {['#10b981', '#f59e0b', '#ef4444', '#6366f1', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'].map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setCategoryColor(color)}
+                    className={`h-8 w-8 rounded-full border-2 transition-all ${categoryColor === color ? 'border-gray-900 scale-110' : 'border-transparent'}`}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetCategoryForm}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAddCategory} className="bg-emerald-600 hover:bg-emerald-700">
+              {editingCategory ? 'Atualizar' : 'Criar Categoria'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Report Dialog */}
+      <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Relatório Financeiro</DialogTitle>
+            <DialogDescription>
+              Resumo de {MONTHS.find(m => m.value === selectedMonth)?.label} {selectedYear}
+            </DialogDescription>
+          </DialogHeader>
+          {report && (
+            <div className="grid gap-4 py-4">
+              {/* Summary */}
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-gray-500">Receitas</p>
+                    <p className="text-xl font-bold text-emerald-600">{formatCurrency(report.totalIncome)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-gray-500">Despesas</p>
+                    <p className="text-xl font-bold text-red-600">{formatCurrency(report.totalExpense)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-gray-500">Saldo Final</p>
+                  <p className={`text-2xl font-bold ${report.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {formatCurrency(report.balance)}
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Stats */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-red-500" />
+                    <span className="text-sm">Maior gasto</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium">{report.highestSpendingCategory.name}</p>
+                    <p className="text-sm text-red-600">{formatCurrency(report.highestSpendingCategory.value)}</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                    <span className="text-sm">Menor gasto</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium">{report.lowestSpendingCategory.name}</p>
+                    <p className="text-sm text-emerald-600">{formatCurrency(report.lowestSpendingCategory.value)}</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-600">Orçamento utilizado</span>
+                  <span className={`font-bold ${getStatusColor(report.budgetPercentageUsed)}`}>
+                    {report.budgetPercentageUsed.toFixed(1)}%
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-600">Total de transações</span>
+                  <span className="font-bold">{report.transactionCount}</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={exportToPDF} className="w-full sm:w-auto">
+              <Download className="h-4 w-4 mr-2" />
+              Exportar TXT
+            </Button>
+            <Button onClick={exportToExcel} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700">
+              <Download className="h-4 w-4 mr-2" />
+              Exportar CSV
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
