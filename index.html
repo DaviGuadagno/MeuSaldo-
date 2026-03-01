@@ -194,8 +194,6 @@
         .balance-card .summary-icon { background: #e5e7eb; }
         .budget-card .value { color: #d97706; }
         .budget-card .summary-icon { background: #fef3c7; }
-        .projected-card .value { color: #7c3aed; }
-        .projected-card .summary-icon { background: #ede9fe; }
         .progress-bar {
             height: 6px;
             background: #e5e7eb;
@@ -448,6 +446,23 @@
             background: #f3f4f6;
             color: #9ca3af;
         }
+        /* Status badges */
+        .status-paid {
+            background: #d1fae5;
+            color: #059669;
+        }
+        .status-received {
+            background: #d1fae5;
+            color: #059669;
+        }
+        .status-pending {
+            background: #fef3c7;
+            color: #d97706;
+        }
+        .status-overdue {
+            background: #fee2e2;
+            color: #dc2626;
+        }
         .value-cell {
             font-weight: 700;
             text-align: right;
@@ -623,19 +638,19 @@
         .switch-slider:before {
             position: absolute;
             content: "";
-            height: 18px;
-            width: 18px;
+            height: 20px;
+            width: 20px;
             left: 3px;
-            bottom: 3px;
+            bottom: 2px;
             background-color: white;
             transition: 0.3s;
             border-radius: 50%;
         }
         .switch input:checked + .switch-slider {
-            background-color: #1d4ed8;
+            background-color: #059669;
         }
         .switch input:checked + .switch-slider:before {
-            transform: translateX(20px);
+            transform: translateX(24px);
         }
 
         /* Cores para categorias */
@@ -853,13 +868,6 @@
                 </div>
                 <div class="summary-icon">💵</div>
             </div>
-            <div class="summary-card projected-card">
-                <div class="summary-info">
-                    <h3>Saldo Projetado</h3>
-                    <div class="value" id="projectedBalance">R$ 0,00</div>
-                </div>
-                <div class="summary-icon">🔮</div>
-            </div>
             <div class="summary-card budget-card">
                 <div class="summary-info">
                     <h3>Orçamento Utilizado</h3>
@@ -933,6 +941,7 @@
                             <th>Tipo</th>
                             <th>Categoria</th>
                             <th style="text-align: right;">Valor</th>
+                            <th>Status</th>
                             <th>Movimentação</th>
                             <th>Obs</th>
                             <th></th>
@@ -1030,8 +1039,20 @@
                         <input type="number" id="transactionValue" placeholder="0,00" step="0.01" oninput="updateParcelValue()">
                     </div>
                     <div class="form-group">
-                        <label>Data da 1ª Parcela / Início</label>
+                        <label>Data do Vencimento</label>
                         <input type="date" id="transactionDate">
+                    </div>
+                </div>
+                <div class="form-group full-width">
+                    <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f9fafb; border-radius: 0.75rem;">
+                        <label class="switch" style="position: relative; width: 50px; height: 26px;">
+                            <input type="checkbox" id="transactionPaid" style="opacity: 0; width: 0; height: 0;">
+                            <span class="switch-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #d1d5db; transition: 0.3s; border-radius: 26px;"></span>
+                        </label>
+                        <div>
+                            <div style="font-weight: 600; color: #374151;" id="paidLabel">⏳ Pendente</div>
+                            <div style="font-size: 0.8rem; color: #6b7280;" id="paidSubLabel">Marque quando for pago/recebido</div>
+                        </div>
                     </div>
                 </div>
                 <div class="form-group full-width">
@@ -1224,7 +1245,6 @@
             .reduce((sum, t) => sum + t.parcelValue, 0);
 
         const balance = totalIncome - totalExpense;
-        const projectedBalance = totalIncome - totalExpense; // Saldo projetado: receita - despesas
         const totalBudget = categories.filter(c => !INCOME_CATEGORIES.includes(c.name)).reduce((sum, c) => sum + c.limit, 0);
         const budgetPercent = totalBudget > 0 ? (totalExpense / totalBudget) * 100 : 0;
 
@@ -1232,10 +1252,6 @@
         document.getElementById('totalExpense').textContent = formatCurrency(totalExpense);
         document.getElementById('totalBalance').textContent = formatCurrency(balance);
         document.getElementById('totalBalance').style.color = balance >= 0 ? '#059669' : '#dc2626';
-        
-        // Saldo Projetado
-        document.getElementById('projectedBalance').textContent = formatCurrency(projectedBalance);
-        document.getElementById('projectedBalance').style.color = projectedBalance >= 0 ? '#7c3aed' : '#dc2626';
         
         document.getElementById('budgetPercent').textContent = budgetPercent.toFixed(1) + '%';
         
@@ -1408,6 +1424,31 @@
             const isParcel = t.movementType === 'parcel';
             const rowClass = (isFixed || isParcel) && !t.isActive ? 'row-inactive' : '';
 
+            // Determinar status visual baseado em isPaid e data
+            const transactionDate = new Date(t.displayDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            let statusBadge = '';
+            let statusClass = '';
+            let statusText = '';
+            
+            // Verificar se está pago/recebido
+            if (t.isPaid === true) {
+                statusClass = t.type === 'income' ? 'status-received' : 'status-paid';
+                statusText = t.type === 'income' ? '✓ Recebido' : '✓ Pago';
+            } else if (transactionDate < today) {
+                // Não está pago e a data já passou = Atrasado
+                statusClass = 'status-overdue';
+                statusText = '⚠ Atrasado';
+            } else {
+                // Não está pago e a data ainda não chegou = Em Aberto
+                statusClass = 'status-pending';
+                statusText = '⏳ Em Aberto';
+            }
+            
+            statusBadge = `<span class="type-badge ${statusClass}" style="cursor: pointer;" onclick="toggleTransactionPaid('${t.originalId || t.id}')">${statusText}</span>`;
+
             // Badge de movimentação
             let movementBadge = '';
             if (isFixed) {
@@ -1434,6 +1475,7 @@
                     <td class="value-cell ${t.type === 'income' ? 'value-income' : 'value-expense'}">
                         ${t.type === 'income' ? '+' : '-'} ${formatCurrency(t.parcelValue)}
                     </td>
+                    <td>${statusBadge}</td>
                     <td>${movementBadge}</td>
                     <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${t.notes || ''}">${t.notes || '-'}</td>
                     <td>
@@ -1568,15 +1610,60 @@
         document.getElementById('transactionDate').valueAsDate = new Date();
         document.getElementById('transactionNotes').value = '';
         document.getElementById('transactionActive').checked = true;
+        document.getElementById('transactionPaid').checked = false;
         document.getElementById('parcelCount').value = '3';
         document.getElementById('fixedInfo').style.display = 'none';
         document.getElementById('parcelInfo').style.display = 'none';
         updateCategoryOptions();
+        updatePaidLabel();
         document.getElementById('transactionModal').classList.add('active');
     };
 
     window.closeTransactionModal = function() {
         document.getElementById('transactionModal').classList.remove('active');
+    };
+
+    window.updatePaidLabel = function() {
+        const isPaid = document.getElementById('transactionPaid').checked;
+        const type = document.getElementById('transactionType').value;
+        const paidLabel = document.getElementById('paidLabel');
+        const paidSubLabel = document.getElementById('paidSubLabel');
+        const slider = document.getElementById('transactionPaid').nextElementSibling;
+        
+        if (isPaid) {
+            paidLabel.textContent = type === 'income' ? '✓ Recebido' : '✓ Pago';
+            paidLabel.style.color = '#059669';
+            paidSubLabel.textContent = type === 'income' ? 'Valor já recebido' : 'Valor já pago';
+            slider.style.backgroundColor = '#059669';
+        } else {
+            paidLabel.textContent = '⏳ Pendente';
+            paidLabel.style.color = '#374151';
+            paidSubLabel.textContent = 'Marque quando for ' + (type === 'income' ? 'recebido' : 'pago');
+            slider.style.backgroundColor = '#d1d5db';
+        }
+    };
+
+    // Event listener para o checkbox de pago
+    document.getElementById('transactionPaid').addEventListener('change', updatePaidLabel);
+
+    window.toggleTransactionPaid = function(id) {
+        const t = transactions.find(t => t.id === id);
+        if (!t) return;
+        
+        t.isPaid = !t.isPaid;
+        
+        saveData();
+        renderTransactions();
+    };
+
+    window.updateStatusInfo = function() {
+        // Manter compatibilidade - agora usa updatePaidLabel
+        updatePaidLabel();
+    };
+
+    window.cycleStatus = function(id, currentStatus) {
+        // Agora apenas alterna entre pago e não pago
+        toggleTransactionPaid(id);
     };
 
     window.toggleMovementInfo = function() {
@@ -1622,6 +1709,9 @@
         select.innerHTML = filteredCategories.map(c => 
             `<option value="${c.id}">${c.icon} ${c.name}</option>`
         ).join('');
+        
+        // Atualizar labels do status baseado no tipo
+        updatePaidLabel();
     };
 
     window.editTransaction = function(id) {
@@ -1636,6 +1726,7 @@
         document.getElementById('transactionDate').value = t.date.split('T')[0];
         document.getElementById('transactionNotes').value = t.notes || '';
         document.getElementById('transactionActive').checked = t.isActive !== false;
+        document.getElementById('transactionPaid').checked = t.isPaid === true;
         
         if (t.movementType === 'parcel') {
             document.getElementById('parcelCount').value = t.totalParcels || 3;
@@ -1644,6 +1735,7 @@
         updateCategoryOptions();
         document.getElementById('transactionCategory').value = t.categoryId;
         toggleMovementInfo();
+        updatePaidLabel();
         
         document.getElementById('transactionModal').classList.add('active');
     };
@@ -1656,6 +1748,7 @@
         const date = document.getElementById('transactionDate').value;
         const notes = document.getElementById('transactionNotes').value;
         const isActive = document.getElementById('transactionActive').checked;
+        const isPaid = document.getElementById('transactionPaid').checked;
         const totalParcels = movementType === 'parcel' ? parseInt(document.getElementById('parcelCount').value) : 1;
 
         if (!categoryId || isNaN(value) || !date) {
@@ -1675,6 +1768,7 @@
                     date, 
                     notes, 
                     isActive: movementType !== 'variable' ? isActive : true,
+                    isPaid,
                     totalParcels
                 };
             }
@@ -1688,6 +1782,7 @@
                 date,
                 notes,
                 isActive: movementType !== 'variable' ? isActive : true,
+                isPaid,
                 totalParcels
             });
         }
