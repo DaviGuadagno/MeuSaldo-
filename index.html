@@ -194,6 +194,8 @@
         .balance-card .summary-icon { background: #e5e7eb; }
         .budget-card .value { color: #d97706; }
         .budget-card .summary-icon { background: #fef3c7; }
+        .projected-card .value { color: #7c3aed; }
+        .projected-card .summary-icon { background: #ede9fe; }
         .progress-bar {
             height: 6px;
             background: #e5e7eb;
@@ -851,6 +853,13 @@
                 </div>
                 <div class="summary-icon">💵</div>
             </div>
+            <div class="summary-card projected-card">
+                <div class="summary-info">
+                    <h3>Saldo Projetado</h3>
+                    <div class="value" id="projectedBalance">R$ 0,00</div>
+                </div>
+                <div class="summary-icon">🔮</div>
+            </div>
             <div class="summary-card budget-card">
                 <div class="summary-info">
                     <h3>Orçamento Utilizado</h3>
@@ -1215,6 +1224,7 @@
             .reduce((sum, t) => sum + t.parcelValue, 0);
 
         const balance = totalIncome - totalExpense;
+        const projectedBalance = totalIncome - totalExpense; // Saldo projetado: receita - despesas
         const totalBudget = categories.filter(c => !INCOME_CATEGORIES.includes(c.name)).reduce((sum, c) => sum + c.limit, 0);
         const budgetPercent = totalBudget > 0 ? (totalExpense / totalBudget) * 100 : 0;
 
@@ -1222,6 +1232,11 @@
         document.getElementById('totalExpense').textContent = formatCurrency(totalExpense);
         document.getElementById('totalBalance').textContent = formatCurrency(balance);
         document.getElementById('totalBalance').style.color = balance >= 0 ? '#059669' : '#dc2626';
+        
+        // Saldo Projetado
+        document.getElementById('projectedBalance').textContent = formatCurrency(projectedBalance);
+        document.getElementById('projectedBalance').style.color = projectedBalance >= 0 ? '#7c3aed' : '#dc2626';
+        
         document.getElementById('budgetPercent').textContent = budgetPercent.toFixed(1) + '%';
         
         const progressEl = document.getElementById('budgetProgress');
