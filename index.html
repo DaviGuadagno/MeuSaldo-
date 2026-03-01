@@ -938,12 +938,12 @@
                     <thead>
                         <tr>
                             <th>Data</th>
+                            <th>Descrição</th>
                             <th>Tipo</th>
                             <th>Categoria</th>
                             <th style="text-align: right;">Valor</th>
                             <th>Status</th>
                             <th>Movimentação</th>
-                            <th>Obs</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -1032,6 +1032,10 @@
                     <label>Categoria</label>
                     <select id="transactionCategory">
                     </select>
+                </div>
+                <div class="form-group full-width">
+                    <label>Descrição</label>
+                    <input type="text" id="transactionDescription" placeholder="Ex: Aluguel do mês, Salário mensal, Compras no mercado...">
                 </div>
                 <div class="form-grid">
                     <div class="form-group">
@@ -1606,6 +1610,7 @@
         document.getElementById('transactionModalTitle').textContent = 'Nova Transação';
         document.getElementById('transactionType').value = 'expense';
         document.getElementById('transactionMovement').value = 'variable';
+        document.getElementById('transactionDescription').value = '';
         document.getElementById('transactionValue').value = '';
         document.getElementById('transactionDate').valueAsDate = new Date();
         document.getElementById('transactionNotes').value = '';
@@ -1722,6 +1727,7 @@
         document.getElementById('transactionModalTitle').textContent = 'Editar Transação';
         document.getElementById('transactionType').value = t.type;
         document.getElementById('transactionMovement').value = t.movementType;
+        document.getElementById('transactionDescription').value = t.description || '';
         document.getElementById('transactionValue').value = t.value;
         document.getElementById('transactionDate').value = t.date.split('T')[0];
         document.getElementById('transactionNotes').value = t.notes || '';
@@ -1744,6 +1750,7 @@
         const type = document.getElementById('transactionType').value;
         const categoryId = document.getElementById('transactionCategory').value;
         const movementType = document.getElementById('transactionMovement').value;
+        const description = document.getElementById('transactionDescription').value;
         const value = parseFloat(document.getElementById('transactionValue').value);
         const date = document.getElementById('transactionDate').value;
         const notes = document.getElementById('transactionNotes').value;
@@ -1763,7 +1770,8 @@
                     ...transactions[index], 
                     type, 
                     categoryId, 
-                    movementType, 
+                    movementType,
+                    description,
                     value, 
                     date, 
                     notes, 
@@ -1778,6 +1786,7 @@
                 type,
                 categoryId,
                 movementType,
+                description,
                 value,
                 date,
                 notes,
