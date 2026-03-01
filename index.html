@@ -1470,6 +1470,7 @@
                             ${formatDate(t.displayDate)}
                         </div>
                     </td>
+                    <td style="max-width: 150px; font-weight: 500;" title="${t.description || ''}">${t.description || '-'}</td>
                     <td><span class="type-badge ${t.type === 'income' ? 'type-income' : 'type-expense'}">${t.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
                     <td>${cat ? cat.icon + ' ' + cat.name : '-'}</td>
                     <td class="value-cell ${t.type === 'income' ? 'value-income' : 'value-expense'}">
@@ -1477,7 +1478,6 @@
                     </td>
                     <td>${statusBadge}</td>
                     <td>${movementBadge}</td>
-                    <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${t.notes || ''}">${t.notes || '-'}</td>
                     <td>
                         <div class="action-btns">
                             ${(isFixed || isParcel) ? `<button class="action-btn" onclick="toggleTransactionActive('${t.originalId || t.id}')" title="${t.isActive ? 'Desativar' : 'Reativar'}">${t.isActive ? '⚡' : '🔌'}</button>` : ''}
